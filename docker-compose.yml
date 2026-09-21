@@ -1,0 +1,90 @@
+services:
+  db:
+    image: postgres:16
+    command: ["postgres", "-c", "log_lock_waits=on", "-c", "deadlock_timeout=200ms", "-c", "log_min_duration_statement=200"]
+    environment:
+      POSTGRES_DB: smartbancs
+      POSTGRES_USER: smartbancs
+      POSTGRES_PASSWORD: smartbancs
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./sql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smartbancs -d smartbancs"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://smartbancs:smartbancs@db:5432/smartbancs}
+      AI_SERVICE_URL: ${AI_SERVICE_URL:-http://ai:8001}
+      LOAD_REQUESTS: ${LOAD_REQUESTS:-50}
+      LOAD_WORKERS: ${LOAD_WORKERS:-10}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      ai:
+        condition: service_started
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "app.worker"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://smartbancs:smartbancs@db:5432/smartbancs}
+      AI_SERVICE_URL: ${AI_SERVICE_URL:-http://ai:8001}
+      WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-0.2}
+      EVENT_TYPE: BANCS
+    depends_on:
+      db:
+        condition: service_healthy
+      ai:
+        condition: service_started
+
+  ai_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "app.worker"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://smartbancs:smartbancs@db:5432/smartbancs}
+      AI_SERVICE_URL: ${AI_SERVICE_URL:-http://ai:8001}
+      WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-0.2}
+      EVENT_TYPE: IA
+    depends_on:
+      db:
+        condition: service_healthy
+      ai:
+        condition: service_started
+
+  ai:
+    build:
+      context: ./ai_service
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    environment:
+      API_PROXY_TARGET: http://api:8000
+      AI_PROXY_TARGET: http://ai:8001
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+      - ai
+
+volumes:
+  pgdata:
