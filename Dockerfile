@@ -9,6 +9,5 @@ COPY app ./app
 COPY ai_service ./ai_service
 COPY tests ./tests
 COPY etl ./etl
-COPY scripts ./scripts
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
